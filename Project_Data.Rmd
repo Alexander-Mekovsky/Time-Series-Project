@@ -1,0 +1,128 @@
+---
+title: "Project_Data"
+output: pdf_document
+date: "2025-04-07"
+---
+
+```{r}
+aapl = read.csv('AAPL_closing_prices_2015_to_2025.csv', header = FALSE, col.names = c("DateTime", "Close"), stringsAsFactors = FALSE)
+gspc = read.csv('GSPC_closing_prices_2015_to_2025.csv', header = FALSE, col.names = c("DateTime", "Close"), stringsAsFactors = FALSE)
+
+library(xts)
+aapl$DateTime <- gsub("(\\+|\\-)(\\d{2}):(\\d{2})", "\\1\\2\\3", aapl$DateTime)
+aapl$DateTime <- as.POSIXct(aapl$DateTime, format = "%Y-%m-%d %H:%M:%S%z", tz = "UTC")
+aapl$DateTime <- as.Date(aapl$DateTime)
+aapl <- aapl[!is.na(aapl$DateTime), ]
+aapl.ts <- xts(aapl$Close, order.by = aapl$DateTime)
+
+gspc$DateTime <- gsub("(\\+|\\-)(\\d{2}):(\\d{2})", "\\1\\2\\3", gspc$DateTime)
+gspc$DateTime <- as.POSIXct(gspc$DateTime, format = "%Y-%m-%d %H:%M:%S%z", tz = "UTC")
+gspc$DateTime <- as.Date(gspc$DateTime)
+gspc <- gspc[!is.na(gspc$DateTime), ]
+gspc.ts <- xts(gspc$Close, order.by = gspc$DateTime)
+```
+
+
+```{r}
+summary(aapl)
+head(aapl)
+```
+
+
+```{r}
+summary(gspc)
+head(gspc)
+```
+
+
+```{r}
+aapl.df <- data.frame(DateTime = index(aapl.ts), Close = coredata(aapl.ts))
+rownames(aapl.df) <- NULL
+aapl.ts.reset <- xts(aapl.df$Close, order.by = aapl.df$DateTime)
+head(aapl.ts.reset)
+
+gspc.df <- data.frame(DateTime = index(gspc.ts), Close = coredata(gspc.ts))
+rownames(gspc.df) <- NULL
+gspc.ts.reset <- xts(gspc.df$Close, order.by = gspc.df$DateTime)
+head(gspc.ts.reset)
+
+aapl.ts.reset <- xts(as.numeric(coredata(aapl.ts.reset)), order.by = index(aapl.ts.reset))
+gspc.ts.reset <- xts(as.numeric(coredata(gspc.ts.reset)), order.by = index(gspc.ts.reset))
+```
+
+
+```{r}
+combined.data = merge(aapl.ts.reset, gspc.ts.reset, join = 'inner')
+colnames(combined.data) = c('AAPL', 'GSPC')
+
+head(combined.data)
+```
+
+
+```{r}
+plot(aapl.ts.reset, main = "AAPL Closing Prices (2015-2025)", ylab = "Closing Price", xlab = "Date")
+plot(gspc.ts.reset, main = "GSPC Closing Prices (2015-2025)", ylab = "Closing Price", xlab = "Date")
+```
+
+
+```{r}
+plot(aapl.ts.reset, main = "AAPL and GSPC Closing Prices (2015-2025)", col = "blue", ylab = "Closing Price", xlab = "Date")
+lines(gspc.ts.reset, col = "red")
+legend("topright", legend = c("AAPL", "GSPC"), col = c("blue", "red"), lty = 1)
+```
+
+
+```{r}
+aapl.returns <- diff(log(aapl.ts.reset))  # Log returns for AAPL
+gspc.returns <- diff(log(gspc.ts.reset))  # Log returns for GSPC
+
+plot(aapl.returns, main = "AAPL Daily Log Returns")
+plot(gspc.returns, main = "GSPC Daily Log Returns")
+```
+
+
+```{r}
+aapl.returns = aapl.returns[-1]
+gspc.returns = gspc.returns[-1]
+combined.returns = merge(aapl.returns, gspc.returns)
+correlation = cor(combined.returns[,1], combined.returns[,2])
+print(paste('Correlation between AAPL and GSPC returns: ', correlation))
+```
+
+
+```{r, fig.width=10, fig.height=6}
+par(mfrow = c(1, 2))
+acf(aapl.returns, main = "ACF of AAPL Returns")
+pacf(aapl.returns, main = "PACF of AAPL Returns")
+```
+
+
+```{r, fig.width=10, fig.height=6}
+par(mfrow = c(1, 2))
+acf(gspc.returns, main = "ACF of GSPC Returns")
+pacf(gspc.returns, main = "PACF of GSPC Returns")
+```
+
+
+```{r}
+library(tseries)
+adf.test(aapl.returns)
+adf.test(gspc.returns)
+```
+
+
+```{r}
+Box.test(aapl.returns, lag = 35, type = "Ljung-Box")
+Box.test(gspc.returns, lag = 35, type = "Ljung-Box")
+```
+
+
+```{r}
+library(forecast)
+aapl.arima = auto.arima(aapl.returns, seasonal = FALSE, stepwise = TRUE, trace = TRUE)
+summary(aapl.arima)
+
+aapl.forecast = forecast(aapl.arima, h=10)
+plot(aapl.forecast)
+```
+

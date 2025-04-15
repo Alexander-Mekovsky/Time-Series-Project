@@ -1,0 +1,233 @@
+---
+title: "Project_Data"
+output: pdf_document
+date: "2025-04-07"
+---
+
+```{r}
+aapl = read.csv('AAPL_closing_prices_2015_to_2025.csv', header = FALSE, col.names = c("DateTime", "Close"), stringsAsFactors = FALSE)
+gspc = read.csv('GSPC_closing_prices_2015_to_2025.csv', header = FALSE, col.names = c("DateTime", "Close"), stringsAsFactors = FALSE)
+
+library(xts)
+aapl$DateTime <- gsub("(\\+|\\-)(\\d{2}):(\\d{2})", "\\1\\2\\3", aapl$DateTime)
+aapl$DateTime <- as.POSIXct(aapl$DateTime, format = "%Y-%m-%d %H:%M:%S%z", tz = "UTC")
+aapl$DateTime <- as.Date(aapl$DateTime)
+aapl <- aapl[!is.na(aapl$DateTime), ]
+aapl.ts <- xts(aapl$Close, order.by = aapl$DateTime)
+
+gspc$DateTime <- gsub("(\\+|\\-)(\\d{2}):(\\d{2})", "\\1\\2\\3", gspc$DateTime)
+gspc$DateTime <- as.POSIXct(gspc$DateTime, format = "%Y-%m-%d %H:%M:%S%z", tz = "UTC")
+gspc$DateTime <- as.Date(gspc$DateTime)
+gspc <- gspc[!is.na(gspc$DateTime), ]
+gspc.ts <- xts(gspc$Close, order.by = gspc$DateTime)
+```
+
+
+```{r}
+summary(aapl)
+head(aapl)
+```
+
+
+```{r}
+summary(gspc)
+head(gspc)
+```
+
+
+```{r}
+aapl.df <- data.frame(DateTime = index(aapl.ts), Close = coredata(aapl.ts))
+rownames(aapl.df) <- NULL
+aapl.ts.reset <- xts(aapl.df$Close, order.by = aapl.df$DateTime)
+head(aapl.ts.reset)
+
+gspc.df <- data.frame(DateTime = index(gspc.ts), Close = coredata(gspc.ts))
+rownames(gspc.df) <- NULL
+gspc.ts.reset <- xts(gspc.df$Close, order.by = gspc.df$DateTime)
+head(gspc.ts.reset)
+
+aapl.ts.reset <- xts(as.numeric(coredata(aapl.ts.reset)), order.by = index(aapl.ts.reset))
+gspc.ts.reset <- xts(as.numeric(coredata(gspc.ts.reset)), order.by = index(gspc.ts.reset))
+```
+
+
+```{r}
+combined.data = merge(aapl.ts.reset, gspc.ts.reset, join = 'inner')
+colnames(combined.data) = c('AAPL', 'GSPC')
+
+head(combined.data)
+```
+
+
+```{r, fig.height=10, fig.width = 22}
+plot(aapl.ts.reset, main = "AAPL Closing Prices (2015-2025)", ylab = "Closing Price", xlab = "Date")
+plot(gspc.ts.reset, main = "GSPC Closing Prices (2015-2025)", ylab = "Closing Price", xlab = "Date")
+```
+
+
+```{r}
+plot(aapl.ts.reset, main = "AAPL and GSPC Closing Prices (2015-2025)", col = "blue", ylab = "Closing Price", xlab = "Date")
+lines(gspc.ts.reset, col = "red")
+legend("topright", legend = c("AAPL", "GSPC"), col = c("blue", "red"), lty = 1)
+```
+
+
+```{r, fig.height=10, fig.width = 22}
+aapl.returns = diff(log(aapl.ts.reset))  # Log returns for AAPL
+gspc.returns = diff(log(gspc.ts.reset))  # Log returns for GSPC
+
+plot(aapl.returns, main = "AAPL Daily Log Returns")
+plot(gspc.returns, main = "GSPC Daily Log Returns")
+```
+
+
+```{r}
+aapl.returns = aapl.returns[-1]
+gspc.returns = gspc.returns[-1]
+combined.returns = merge(aapl.returns, gspc.returns)
+correlation = cor(combined.returns[,1], combined.returns[,2])
+print(paste('Correlation between AAPL and GSPC returns: ', correlation))
+```
+
+
+```{r, fig.width=12, fig.height=6}
+par(mfrow = c(1, 2))
+acf(aapl.returns, main = "ACF of AAPL Returns", lag.max = (length(aapl.returns) / 20))
+pacf(aapl.returns, main = "PACF of AAPL Returns", lag.max = (length(aapl.returns) / 20))
+```
+
+
+```{r, fig.width=12, fig.height=6}
+par(mfrow = c(1, 2))
+acf(gspc.returns, main = "ACF of GSPC Returns", lag.max = (length(gspc.returns) / 20))
+pacf(gspc.returns, main = "PACF of GSPC Returns", lag.max = (length(gspc.returns) / 20))
+```
+
+
+```{r}
+library(tseries)
+adf.test(aapl.returns)
+adf.test(gspc.returns)
+```
+
+
+```{r}
+Box.test(aapl.returns, lag = 35, type = "Ljung-Box")
+Box.test(gspc.returns, lag = 35, type = "Ljung-Box")
+```
+
+
+```{r}
+library(forecast)
+aapl.arima = auto.arima(aapl.returns, seasonal = FALSE, stepwise = TRUE, trace = TRUE)
+summary(aapl.arima)
+
+aapl.forecast = forecast(aapl.arima, h=10)
+plot(aapl.forecast)
+```
+
+```{r}
+library(vars)
+combined.returns = merge(aapl.returns, gspc.returns)
+lag.selection = VARselect(combined.returns, lag.max = 10, type = "const")
+lag.selection$selection
+```
+
+```{r}
+var.model.9 = VAR(combined.returns, p=9)
+summary(var.model.9)
+```
+
+```{r}
+var.model.1 = VAR(combined.returns, p=1)
+summary(var.model.1)
+```
+
+
+```{r}
+causality(var.model.9, cause = "gspc.returns")
+causality(var.model.9, cause = "aapl.returns")
+```
+
+```{r}
+irf.plot = irf(var.model.9, impulse = "gspc.returns", response = "aapl.returns", n.ahead = 10, boot = TRUE)
+plot(irf.plot)
+```
+
+```{r}
+library(rmgarch)
+uspec = ugarchspec(variance.model = list(model = "sGARCH"), mean.model = list(armaOrder = c(0,0)), distribution.model = "norm")
+spec = dccspec(uspec = multispec(replicate(2, uspec)), dccOrder = c(1,1), distribution = "mvnorm")
+model.fit = dccfit(spec, data = combined.returns)
+correlations = rcor(model.fit)
+ts.plot(correlations[1,2,], main = "Dynamic Correlation Between AAPL and GSPC")
+```
+
+```{r}
+H.t = rcov(model.fit)
+weights = c(0.5, 0.5)
+var.t = sapply(1:dim(H.t)[3], function(i) t(weights) %*% H.t[,,i] %*% weights)
+ts.plot(sqrt(var.t), main = "Portfolio Volatility Over Time")
+```
+
+```{r}
+dcc.forecast = dccforecast(model.fit, n.ahead = 5)
+rcor(dcc.forecast)[[1]][,,1]
+```
+
+```{r}
+combined.data.no2020 = combined.data[!(index(combined.data) >= as.Date("2020-02-01") & index(combined.data) <= as.Date("2020-4-30"))]
+combined.data.no2020
+plot(combined.data.no2020$GSPC, main = 'GSPC With Removed 2020 Data')
+```
+```{r}
+aapl.returns.2 = diff(log(combined.data.no2020$AAPL))[-1]
+gspc.returns.2 = diff(log(combined.data.no2020$GSPC))[-1]
+combined.returns.2 = merge(aapl.returns.2, gspc.returns.2)
+correlation = cor(combined.returns.2[,1], combined.returns.2[,2])
+print(paste('Correlation between AAPL and GSPC returns: ', correlation))
+```
+```{r}
+ts.plot(aapl.returns.2)
+ts.plot(gspc.returns.2)
+```
+
+```{r}
+VARselect(combined.returns.2, lag.max = 10, type = "const")
+```
+
+```{r}
+var.model.1 <- VAR(combined.returns.2, p = 1)
+summary(var.model.1)
+```
+
+```{r}
+var.model.4 <- VAR(combined.returns.2, p = 4)
+summary(var.model.4)
+```
+
+```{r}
+causality(var.model.4, cause = "GSPC")
+causality(var.model.4, cause = "AAPL")
+
+```
+
+```{r}
+library(zoo)
+data.2020 = combined.data["2020"]
+rolling.mean.2020 = rollapply(data.2020, width = 252, FUN = mean, by.column = TRUE, align = 'right', fill = NA)
+```
+
+
+```{r}
+plot(index(rolling.mean.2020))
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
